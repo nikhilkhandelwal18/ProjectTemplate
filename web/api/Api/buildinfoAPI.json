@@ -1,0 +1,7 @@
+{
+    "application": "api",
+    "repository": "<repository>",
+    "branch": "<branch>",
+    "pipeline": "<pipeline>",
+    "buildNumber": "<buildNumber>"
+}

@@ -1,0 +1,29 @@
+body {
+  background: #dfdfdf;
+}
+.title {
+  margin: 0;
+}
+.navMenu {
+  font-size: 14px;
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+}
+.navMenuItem {
+  margin: 0 10px;
+  :hover {
+    cursor: pointer;
+    color: #84cef1;
+  }
+}
+
+.appHeader {
+  background-color: #0d2556 !important;
+  color: white !important;
+}
+
+.navMenuItem.active {
+  color: #84cef1;
+}
