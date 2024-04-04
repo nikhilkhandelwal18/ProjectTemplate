@@ -10,7 +10,6 @@ export const LoggedInUser = () => {
   } else {
     return (
       <span className="title">
-        Welcome &nbsp;
         <b>{userContext.user?.displayName}</b>
       </span>
     );
