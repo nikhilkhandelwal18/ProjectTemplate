@@ -10,3 +10,16 @@ export type User = {
   emailAddress?: string;
   extensionAttribute3?: string;
 };
+
+export type log4NetAppender = {
+  name?: string;
+  logFilePath?: string;
+  appenderName?: string;
+  filePathExists?: boolean;
+};
+
+export type connectionResult = {
+  server?: string;
+  database?: string;
+  state?: string;
+};

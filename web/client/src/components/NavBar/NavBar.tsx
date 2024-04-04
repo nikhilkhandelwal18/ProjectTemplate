@@ -39,10 +39,11 @@ export const NavBar = () => {
         <span
           style={{
             cursor: "pointer",
+            fontSize: 16,
           }}
           className="title"
           onClick={() => handleMenuItemClick("/")}>
-          Project Name
+          CI-CD DEMO
         </span>
       </AppBarSection>
       <AppBarSection>
@@ -77,6 +78,7 @@ export const NavBar = () => {
       </AppBarSection>
       <AppBarSection></AppBarSection>
       <AppBarSection>
+        Welcome&nbsp;
         <LoggedInUser />
       </AppBarSection>
       <AppBarSpacer style={{ width: 10 }} />
