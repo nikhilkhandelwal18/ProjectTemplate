@@ -1,92 +1,80 @@
-#usage prep-table-script.ps1 $(Build.Repository.Name), $(Build.SourceBranch), $(Build.DefinitionName), $(Build.BuildNumber)
+# Usage: prep-table-script.ps1 $(Build.Repository.Name), $(Build.SourceBranch), $(Build.DefinitionName), $(Build.BuildNumber), $(DbName)
 
+Param ([string]$Repo, [string]$Branch, [string]$Pipeline, [string]$Build, [string]$DbName, [string]$AppName)
 
-Param ($Repo, $Branch, $Pipeline, $Build)
+# Get the directory where the script is located
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Getting a list of all Table creation files
-$Files = Get-ChildItem -Path 'database\Tables\*.sql' 
-foreach ($File in $Files)
-{
-  #Add Extended Properties to the SP script - Build Info
-  Add-Content -Path $File -Value ''
+$myFinalScript = Join-Path -Path $scriptDir -ChildPath "database\create-tables-$($AppName.ToLower()).sql"
+Write-Host "Final Script: $($myFinalScript)"
 
- $Value = "--Add Extended Properties - GitHub Repo"
-  Add-Content -Path $File -Value $Value
+$tableList = Get-Content -Path "database\tables-$($AppName.ToLower()).json" -Raw | ConvertFrom-Json
 
-  $Value = "EXEC sys.sp_addextendedproperty @name = N'GitHub Repo',"
-  Add-Content -Path $File -Value $Value
+# Function to add extended properties for a table
+function Add-ExtendedProperties($tableName, $schemaName, $filePath) {
+    Write-Host "Processing Table: $($schemaName).$($tableName), File: $($filePath)"
 
-  $Value = "    @value = N'" + $Repo +"',"
-  Add-Content -Path $File -Value $Value
+    # Add empty line for separation
+    Add-Content -Path $filePath -Value ''
 
-  $Value = "    @level0type = N'SCHEMA', @level0name = 'dbo',"
-  Add-Content -Path $File -Value $Value
+    # Define property values
+    $properties = @(
+        @{"name"="GitHub Repo"; "value"=$Repo},
+        @{"name"="Branch Name"; "value"=$Branch},
+        @{"name"="Pipeline Name"; "value"=$Pipeline},
+        @{"name"="Build Number"; "value"=$Build}
+    )
 
-  $Value = "    @level1type = N'Table', @level1name = '" + $File.BaseName + "';"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "GO"
-  Add-Content -Path $File -Value $Value
-
-  Add-Content -Path $File -Value ''
-
-  $Value = "--Add Extended Properties - Branch Name"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "EXEC sys.sp_addextendedproperty @name = N'Branch Name',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @value = N'" + $Branch +"',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level0type = N'SCHEMA', @level0name = 'dbo',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level1type = N'Table', @level1name = '" + $File.BaseName + "';"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "GO"
-  Add-Content -Path $File -Value $Value
-
-  Add-Content -Path $File -Value ''
-
-  $Value = "--Add Extended Properties - Pipeline Name"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "EXEC sys.sp_addextendedproperty @name = N'Pipeline Name',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @value = N'" + $Pipeline +"',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level0type = N'SCHEMA', @level0name = 'dbo',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level1type = N'Table', @level1name = '" + $File.BaseName + "';"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "GO"
-  Add-Content -Path $File -Value $Value
-
-  Add-Content -Path $File -Value ''
-
-  $Value = "--Add Extended Properties - Build Number"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "EXEC sys.sp_addextendedproperty @name = N'Build Number',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @value = N'" + $Build +"',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level0type = N'SCHEMA', @level0name = 'dbo',"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "    @level1type = N'Table', @level1name = '" + $File.BaseName + "';"
-  Add-Content -Path $File -Value $Value
-
-  $Value = "GO"
-  Add-Content -Path $File -Value $Value
-
-  Add-Content -Path $File -Value ''
+    # Loop through properties and write to file
+    foreach ($prop in $properties) {
+        Add-Content -Path $filePath -Value "-- Add Extended Properties - $($prop.name)"
+        Add-Content -Path $filePath -Value "EXEC sys.sp_addextendedproperty @name = N'$($prop.name)',"
+        Add-Content -Path $filePath -Value "    @value = N'$($prop.value)',"
+        Add-Content -Path $filePath -Value "    @level0type = N'SCHEMA', @level0name = '$schemaName',"
+        Add-Content -Path $filePath -Value "    @level1type = N'Table', @level1name = '$tableName';"
+        Add-Content -Path $filePath -Value "GO"
+        Add-Content -Path $filePath -Value ''
+    }
 }
+
+# Create or clear the final script before appending
+if (Test-Path $myFinalScript) {
+    Clear-Content -Path $myFinalScript
+} else {
+    New-Item -Path $myFinalScript -ItemType File
+}
+
+# Add the USE statement at the top of the SQL file
+Add-Content -Path $myFinalScript -Value "USE [$DbName]"
+Add-Content -Path $myFinalScript -Value "GO"
+Add-Content -Path $myFinalScript -Value ''
+
+# Process each parent table and its children
+foreach ($table in $tableList.Tables) {
+    $parentTable = $table.tableName
+    $schemaName = $table.schemaName
+    $myFile = Join-Path -Path $scriptDir -ChildPath $table.fileName
+
+    # Check if the file exists and read content into the final script
+    if (Test-Path $myFile) {
+        $myTableContent = Get-Content -Path $myFile -Encoding UTF8
+        $myTableContent | Out-File -Append -FilePath $myFinalScript -Encoding UTF8
+    } else {
+        Write-Host "File does not exist: $myFile"
+    }
+
+    # Process parent table's extended properties
+    Add-ExtendedProperties -tableName $parentTable -schemaName $schemaName -filePath $myFinalScript
+
+    # Process child tables' extended properties
+    foreach ($childTable in $table.children) {
+        Add-ExtendedProperties -tableName $childTable -schemaName $schemaName -filePath $myFinalScript
+
+        #Start-Sleep -Seconds 2
+    }
+
+    # Add a blank line
+    Add-Content -Path $myFinalScript -Value ''
+}
+
+Exit

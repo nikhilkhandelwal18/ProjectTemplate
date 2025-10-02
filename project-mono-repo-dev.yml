@@ -1,42 +1,105 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
   branches:
     exclude:
       - main
-  paths:
-    exclude:
-      - project-mono-repo-main.yml
 
 pr: none
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: windows-latest # ps1 files are run on windows
+
+variables:
+  - group: TELERIK_KEYS_GROUP
 
 steps:
-  # Build Environment Variables
+  #region: ProjectName Online
   - task: CmdLine@2
     displayName: "Display Build Environment Variables"
     inputs:
       script: |
-        echo "Build.DefinitionName: " '$(Build.DefinitionName)'
-        echo "Build.BuildNumber: " '$(Build.BuildNumber)'
-        echo "Build.Repository.Name: " '$(Build.Repository.Name)'
-        echo "Build.Repository.Provider: " '$(Build.Repository.Provider)'
-        echo "Build.SourceBranch: " '$(Build.SourceBranch)'
-        echo "Build.SourceBranchName:" '$(Build.SourceBranchName)'
-        echo "Build.SourceVersion: " '$(Build.SourceVersion)'
-        echo "Pipeline.Workspace: " '$(Pipeline.Workspace)'
+        echo Build.DefinitionName: $(Build.DefinitionName)
+        echo Build.BuildNumber: $(Build.BuildNumber)
+        echo Build.Repository.Name: $(Build.Repository.Name)
+        echo Build.Repository.Provider: $(Build.Repository.Provider)
+        echo Build.SourceBranch: $(Build.SourceBranch)
+        echo Build.SourceBranchName: $(Build.SourceBranchName)
+        echo Build.SourceVersion: $(Build.SourceVersion)
+        echo Pipeline.Workspace: $(Pipeline.Workspace)
 
-  # List files (first)
   - task: CmdLine@2
     displayName: "List files (first)"
     inputs:
       script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  - task: PowerShell@2
+    displayName: "Updating buildinfo.json with Build info"
+    inputs:
+      targetType: "inline"
+      script: |
+        Get-Content "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json" 
+        $json = Get-Content "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json" | ConvertFrom-Json 
+
+        $json.repository = '$(Build.Repository.Name)'
+        $json.branch = '$(Build.SourceBranchName)'
+        $json.pipeline = '$(Build.DefinitionName)'
+        $json.buildNumber = '$(Build.BuildNumber)'
+
+        $json | ConvertTo-Json | Out-File "$(Build.SourcesDirectory)/application/buildinfo.json"
+        Get-Content "$(Build.SourcesDirectory)/application/buildinfo.json"
+
+  - task: CmdLine@2
+    displayName: "List files (after updating buildinfo.json)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  - task: CopyFiles@2
+    displayName: "Copy buildinfo.json from Source/application to Binaries/staging "
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)/application"
+      Contents: |
+        buildinfo.json
+      TargetFolder: "$(Build.BinariesDirectory)/run"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "List files (after copying Source/application to Binaries/staging)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+    ## Publish -- io-modules ##
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet publish - io-modules"
+    inputs:
+      command: "publish"
+      projects: "application/io-modules/NJTransit.AdabasMigration.sln"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained false -m:1 -nr:false --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/publish --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "application/io-modules/"
+
+  - task: CmdLine@2
+    displayName: "List files (after dotNet publish - io-modules)"
+    inputs:
+      script: |
         echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
         echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
         echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
@@ -44,14 +107,310 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # Building react web client
-  # React: web client - Install Node.js 18.x
-  - task: NodeTool@0
-    displayName: "React: web client - Install Node.js 18.x"
+    ## Publish -- programs ##
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet publish - programs"
     inputs:
-      versionSpec: "18.x"
+      command: "publish"
+      projects: "application/programs/NJTransit.NaturalMigration.sln"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained false -m:1 -nr:false --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/publish --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "application/programs/"
 
-  # React: web client - List files (after node install)
+  - task: CmdLine@2
+    displayName: "List files (after dotNet publish - programs)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Publish -- framework ##
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet publish - framework"
+    inputs:
+      command: "publish"
+      projects: "application/framework/NJTransit.Integration.sln"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained false -m:1 -nr:false --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/publish --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "application/framework/"
+
+  - task: CmdLine@2
+    displayName: "List files (after dotNet publish - framework)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Copy-IOModules ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Copy I/O Modules"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/io-modules"
+      Contents: NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run/io-modules"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Copy I/O Modules to Framework"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/io-modules"
+      Contents: |
+        **
+        !runtimes/**
+        !NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run/framework"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "ProjectName-Online: List files (after copying IO Modules to run)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Copy-Programs ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Copy program files"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/programs"
+      Contents: | 
+        NJTransit.*
+        !*ProjectNamepb01*.*
+      TargetFolder: "$(Build.BinariesDirectory)/run/programs"
+      CleanTargetFolder: true
+      OverWrite: true      
+
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Copy program files to Framework (do not clean target folder!!!)"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/programs"
+      Contents: |
+        **
+        !runtimes/**
+        !NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run/framework"
+      CleanTargetFolder: false
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "ProjectName-Online: List files (after copying program files to run)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Copy-Integration ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Copy framework files (do not clean target folder!!!)"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/framework"
+      Contents: |
+        **/*
+        !njtrun.*.config
+      TargetFolder: "$(Build.BinariesDirectory)/run/framework"
+      CleanTargetFolder: false
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "List files (after copy to run)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Final staging to prep for zip ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Online: Final staging to prep for zip"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/run"
+      Contents: "**"
+      TargetFolder: "$(Build.BinariesDirectory)/staging/ProjectName/App"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: ArchiveFiles@2
+    displayName: "Compress ProjectNameOnline to Zip"
+    inputs:
+      rootFolderOrFile: "$(Build.BinariesDirectory)/staging/ProjectName"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-ProjectNameOnline.zip"
+
+  - task: CmdLine@2
+    displayName: "List files (after Compress to Zip: ProjectNameOnline.zip)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  #endregion: ProjectName Online
+
+  #region: ProjectName Batch
+  - task: CopyFiles@2
+    displayName: "Copy buildinfo.json from Source/run to Binaries/run-batch "
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)/application"
+      Contents: buildinfo.json
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "List files (after copying Source/application to Binaries/run-batch)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+    ## Copy-IOModules run-batch ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy I/O Modules"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/io-modules"
+      Contents: NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/io-modules"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy I/O Modules  to Framework"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/io-modules"
+      Contents: |
+        **
+        !runtimes/**
+        !NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/framework"
+      CleanTargetFolder: true
+      OverWrite: true
+
+    ## Copy-Programs run-batch ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy program files"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/programs"
+      Contents: | 
+        NJTransit.*
+        !*ProjectNamepo01*.*
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/programs"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy program files to Framework (do not clean target folder!!!)"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/programs"
+      Contents: |
+        **
+        !runtimes/**
+        !NJTransit.*
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/framework"
+      CleanTargetFolder: false
+      OverWrite: true
+
+    ## Copy-Integration run-batch ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy Framework files"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/publish/framework"
+      Contents: |
+        **
+        !njtrun.*.config
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/framework"
+      CleanTargetFolder: true
+      OverWrite: true
+
+    ## Copy-Batch-Scripts run-batch ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Copy Batch Scripts"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)/application/batch-scripts"
+      Contents: "**"
+      TargetFolder: "$(Build.BinariesDirectory)/run-batch/batch-scripts"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "ProjectName-Batch: List files (after copy to run-batch)"
+    inputs:
+      script: |
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+    ## Final staging to prep for zip ##
+  - task: CopyFiles@2
+    displayName: "ProjectName-Batch: Final staging to prep for zip"
+    inputs:
+      SourceFolder: "$(Build.BinariesDirectory)/run-batch"
+      Contents: "**"
+      TargetFolder: "$(Build.BinariesDirectory)/staging/ProjectName-Batch/App"
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: ArchiveFiles@2
+    displayName: "Compress ProjectNameBatch to Zip"
+    inputs:
+      rootFolderOrFile: "$(Build.BinariesDirectory)/staging/ProjectName-Batch"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-ProjectNameBatch.zip"
+
+  - task: CmdLine@2
+    displayName: "List files (after Compress to Zip: ProjectNameBatch.zip)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+  #endregion: ProjectName Batch
+  
+  #region: Build/Publish |- client |- api |- MfApps
+
+    #Building react web client
+  - task: NodeTool@0
+    displayName: "React: web client - Install Node.js 22.x"
+    inputs:
+      versionSpec: "22.x"
+
   - task: CmdLine@2
     displayName: "React: web client - List files (after node install)"
     inputs:
@@ -64,14 +423,12 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # React: web client - npm ci
   - task: Npm@1
     displayName: "React: web client - npm ci"
     inputs:
       command: "ci"
       workingDir: "web/client"
 
-  # React: web client - List files (after npm ci)
   - task: CmdLine@2
     displayName: "React: web client - List files (after npm ci)"
     inputs:
@@ -84,24 +441,18 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # React: web client - Updating buildinfo.json with Build info
-  - task: PowerShell@2
-    displayName: "React: web client - Updating buildinfo.json with Build info"
+  # React: Telerik License Activate
+  - task: Bash@3
+    displayName: "React: Activate Kendo UI License"
     inputs:
       targetType: "inline"
       script: |
-        Get-Content "$(Build.SourcesDirectory)/web/client/src/buildinfo.json" 
-        $json = Get-Content "$(Build.SourcesDirectory)/web/client/src/buildinfo.json" | ConvertFrom-Json 
+        # React: Activate Kendo UI License
+        npx kendo-ui-license activate
+      workingDirectory: "web/client"
+    env:
+      KENDO_UI_LICENSE: $(TELERIK_NODE_REACT_KEY)
 
-        $json.repository = '$(Build.Repository.Name)'
-        $json.branch = '$(Build.SourceBranchName)'
-        $json.pipeline = '$(Build.DefinitionName)'
-        $json.buildNumber = '$(Build.BuildNumber)'
-
-        $json | ConvertTo-Json | Out-File "$(Build.SourcesDirectory)/web/client/src/buildinfo.json"
-        Get-Content "$(Build.SourcesDirectory)/web/client/src/buildinfo.json"
-
-  # React: web client - npm run build
   - task: Npm@1
     displayName: "React: web client - npm run build"
     inputs:
@@ -109,7 +460,6 @@ steps:
       workingDir: "web/client"
       customCommand: "run build"
 
-  # React: web client - List files (after npm run build)
   - task: CmdLine@2
     displayName: "React: web client - List files (after npm run build)"
     inputs:
@@ -122,17 +472,15 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # React: web client - Copy build files to Binaries folder
   - task: CopyFiles@2
     displayName: "React: web client - Copy build files to Binaries folder"
     inputs:
       SourceFolder: "$(Build.SourcesDirectory)/web/client/build"
       Contents: "**"
-      TargetFolder: "$(Build.BinariesDirectory)/client"
+      TargetFolder: "$(Build.BinariesDirectory)/web/Inetpub/WWWRoot/ProjectName/client"
       CleanTargetFolder: true
       OverWrite: true
 
-  # React: web client - List files (after copy from source to binaries)
   - task: CmdLine@2
     displayName: "React: web client - List files (after copy from source to binaries)"
     inputs:
@@ -145,108 +493,101 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # React: web client - Compress to Zip
+    #Building .net web api
   - task: PowerShell@2
-    displayName: "React: web client - Compress to Zip"
+    displayName: "Updating buildinfo.json with Build info"
     inputs:
       targetType: "inline"
       script: |
-        # 1)Compress the folders into zip file
-        Compress-Archive '$(Build.BinariesDirectory)/client/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-web-client.zip'
-
-  # React: web client - List files (after Compress to Zip)
-  - task: CmdLine@2
-    displayName: "React: web client - List files (after Compress to Zip)"
-    inputs:
-      script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
-        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
-        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
-        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
-
-        echo "Structure of work folder of this pipeline:"
-        tree $(Agent.WorkFolder)/1
-
-  # Updating buildinfoAPI.json with Build info
-  - task: PowerShell@2
-    displayName: "Updating buildinfoAPI.json with Build info"
-    inputs:
-      targetType: "inline"
-      script: |
-        Get-Content "$(Build.SourcesDirectory)/web/api/Api/buildinfoAPI.json" 
-        $json = Get-Content "$(Build.SourcesDirectory)/web/api/Api/buildinfoAPI.json" | ConvertFrom-Json 
+        Get-Content "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json" 
+        $json = Get-Content "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json" | ConvertFrom-Json 
 
         $json.repository = '$(Build.Repository.Name)'
         $json.branch = '$(Build.SourceBranchName)'
         $json.pipeline = '$(Build.DefinitionName)'
         $json.buildNumber = '$(Build.BuildNumber)'
 
-        $json | ConvertTo-Json | Out-File "$(Build.SourcesDirectory)/web/api/Api/buildinfoAPI.json"
-        Get-Content "$(Build.SourcesDirectory)/web/api/Api/buildinfoAPI.json"
+        $json | ConvertTo-Json | Out-File "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json"
+        Get-Content "$(Build.SourcesDirectory)/web/api/ProjectNameApi/buildinfo.json"
 
-  # dotnet publish - api
   - task: DotNetCoreCLI@2
     displayName: "dotnet publish - api"
     inputs:
       command: "publish"
       publishWebProjects: false
-      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/api --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/web/Inetpub/WWWRoot/ProjectName/api --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
       zipAfterPublish: false
       workingDirectory: "web/api/"
 
-  # List files (after dotNet publish)
   - task: CmdLine@2
     displayName: "List files (after dotNet publish)"
     inputs:
       script: |
-        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
-        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
-        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
-
-        echo "Structure of work folder of this pipeline:"
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
         tree $(Agent.WorkFolder)/1
 
-  # To add automated unit tests
-
-  # Compress Web site to Zip
-  - task: PowerShell@2
-    displayName: "Compress Web site to Zip"
+    #Building MfApps YARP
+  - task: DotNetCoreCLI@2
+    displayName: "MfApps - dotnet publish"
     inputs:
-      targetType:
-        "inline"
-        # 1) Create a zip file for publishing
-      script: |
-        # 1) Create a zip file for publishing
-        Compress-Archive '$(Build.BinariesDirectory)/api/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-web-api.zip'
+      command: "publish"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/web/Inetpub/WWWRoot/ProjectName/mfApps --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "web/mfApps"
 
-  # List files (after Compress to Zip)
   - task: CmdLine@2
-    displayName: "List files (after Compress to Zip)"
+    displayName: "MfApps - List files (after dotNet publish)"
     inputs:
       script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
-        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
-        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
-        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
-
-        echo "Structure of work folder of this pipeline:"
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
         tree $(Agent.WorkFolder)/1
 
-  # Database Scripts
-  # Running prep-table-script.ps1
-  - task: PowerShell@2
-    displayName: "Running prep-table-script.ps1"
+    #Compress Web site to zip Inetpub |-client |-api |-mfApps |-TestUser
+  - task: ArchiveFiles@2
+    displayName: "web.Inetpub - Compress Web site to Zip"
     inputs:
-      filePath: "$(Build.SourcesDirectory)/prep-table-script.ps1"
-      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber)"
-      workingDirectory: "$(Build.SourcesDirectory)"
+      rootFolderOrFile: "$(Build.BinariesDirectory)/web/Inetpub"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-web-Inetpub.zip"
 
-  # List files (after running prep-table-script.ps1)
   - task: CmdLine@2
-    displayName: "List files (after running prep-table-script.ps1)"
+    displayName: "Inetpub - List files (after Compress to Zip)"
     inputs:
       script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  #endregion: Build/Publish |- client |- api |- MfApps
+
+  #region: Build |- TestUser
+    #Building TestUser MVC
+  - task: DotNetCoreCLI@2
+    displayName: "TestUser - dotnet publish"
+    inputs:
+      command: "publish"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory) --output $(Build.BinariesDirectory)/testUser --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "web/testUser"
+
+  - task: CmdLine@2
+    displayName: "TestUser - List files (after dotNet publish)"
+    inputs:
+      script: |
         echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
         echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
         echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
@@ -254,50 +595,250 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # Copy Table creation SQL files to target location
+  - task: ArchiveFiles@2
+    displayName: "TestUser - Compress TestUser to Zip"
+    inputs:
+      rootFolderOrFile: "$(Build.BinariesDirectory)/testUser"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-web-testUser.zip"
+
+  - task: CmdLine@2
+    displayName: "TestUser - List files (after Compress to Zip)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  #endregion: Build |- TestUser
+
+  #region: Database
+    # Database Scripts: Create New Database
   - task: CopyFiles@2
-    displayName: "Copy Table creation SQL files to target location"
+    displayName: "Copy New Database Scripts to Binaries folder"
     inputs:
       SourceFolder: "$(Build.SourcesDirectory)"
-      Contents: "database/Tables/*.sql"
-      TargetFolder: "$(Build.BinariesDirectory)"
+      Contents: |
+        database/NewDatabaseScript/**/*
+      TargetFolder: "$(Build.BinariesDirectory)/database/NewDatabaseScript"
+      flattenFolders: true
+      CleanTargetFolder: true
+      OverWrite: true
 
-  # List files (after copying tables creation scripts to target)
-  - task: CmdLine@2
-    displayName: "List files (after copying tables creation scripts to target)"
-    inputs:
-      script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
-        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
-        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
-        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
-
-        echo "Structure of work folder of this pipeline:"
-        tree $(Agent.WorkFolder)/1
-
-  # Compress Table Creation scripts to Zip
   - task: PowerShell@2
-    displayName: "Compress Table Creation scripts to Zip"
+    displayName: "Compress New Database Scripts to Zip"
     inputs:
       targetType: "inline"
       script: |
-        # 1) Create a zip file for publishing
-        Compress-Archive '$(Build.BinariesDirectory)/database/Tables/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-tables.zip'
+        Compress-Archive '$(Build.BinariesDirectory)/database/NewDatabaseScript' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-new-database-script.zip'
 
-  # List files (after copying tables zip to artifact folder)
+    # Database Scripts: Create Table, View, SQL Job to load CNJT_EMP_FL daily
+  - task: CopyFiles@2
+    displayName: "Copy CNJT_EMP_FL_Daily Load.sql Scripts to Binaries folder"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: |
+        database/Jobs/CNJT_EMP_FL_Daily Load.sql
+      TargetFolder: "$(Build.BinariesDirectory)/database/CNJTJob"
+      flattenFolders: true
+
+  - task: PowerShell@2
+    displayName: "Compress CNJT_EMP_FL Job Scripts to Zip"
+    inputs:
+      targetType: "inline"
+      script: |
+        Compress-Archive '$(Build.BinariesDirectory)/database/CNJTJob' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-cnjt-emp-fl-job.zip'
+  
   - task: CmdLine@2
-    displayName: "List files (after copying tables zip to artifact folder)"
+    displayName: "List files (after Compress CNJT_EMP_FL Job Scripts to Zip)"
     inputs:
       script: |
-        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
-        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
-        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
-        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
-
-        echo "Structure of work folder of this pipeline:"
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
         tree $(Agent.WorkFolder)/1
 
-  # Running prep-sp-script.ps1
+    # Database Scripts: Create Table/View/Index Scripts
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-table-script.ps1 for ABX tables"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-table-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName\" \"ABX\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+  
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-table-script.ps1 for ProjectName ongoing tables"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-table-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName\" \"ProjectName-ONGOING\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-table-script.ps1 for ProjectName one time only tables"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-table-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName\" \"ProjectName-ONETIME\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+  
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-table-script.ps1 for ProjectName_ARCHIVE tables"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-table-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName_ARCHIVE\" \"ProjectName-ARCHIVE\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-view-script.ps1"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-view-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: PowerShell@2
+    displayName: "Run ProjectName_ARCHIVE prep-view-script.ps1"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-view-script.ps1"
+      arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber) \"ProjectName_ARCHIVE\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: PowerShell@2
+    displayName: "Run ProjectName prep-indexes-script.ps1"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-indexes-script.ps1"
+      arguments: "\"ProjectName\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: PowerShell@2
+    displayName: "Run ProjectName_ARCHIVE prep-indexes-script.ps1"
+    inputs:
+      filePath: "$(Build.SourcesDirectory)/prep-indexes-script.ps1"
+      arguments: "\"ProjectName_ARCHIVE\""
+      workingDirectory: "$(Build.SourcesDirectory)"
+
+  - task: CmdLine@2
+    displayName: "List files (after running prep-xxx-script.ps1)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  - task: CopyFiles@2
+    displayName: "Copy SQL Scripts to Binaries folder"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: |
+        database/create-tables*.sql
+        database/create-indexes*.sql
+        database/create-views*.sql
+      TargetFolder: "$(Build.BinariesDirectory)/database/Tables/db-tables/"
+      flattenFolders: true
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CmdLine@2
+    displayName: "List files (after copying SQL Scripts to Binaries folder)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  - task: ArchiveFiles@2
+    displayName: "Compress SQL Table Scripts to Zip"
+    inputs:
+      rootFolderOrFile: "$(Build.BinariesDirectory)/database/Tables"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-tables.zip"
+
+  - task: CmdLine@2
+    displayName: "List files (after creating the db-tables.zip)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+    # DataXFR
+  - task: CopyFiles@2
+    displayName: "Copy DataLoad PowerShell scripts  to target location"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: database/DataXFR/PS-Script/**
+      TargetFolder: "$(Build.BinariesDirectory)/database/DataXFR/PS-Script"
+      flattenFolders: true
+
+  - task: CopyFiles@2
+    displayName: "Copy post-DataLoad SQL scripts to target location"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: database/DataXFR/SQL-Script/**
+      TargetFolder: "$(Build.BinariesDirectory)/database/DataXFR/SQL-Script"
+      flattenFolders: true
+
+  - task: CopyFiles@2
+    displayName: "Copy  DataLoad definition XML files to target location"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: database/DataXFR/XFR-Load/**
+      TargetFolder: "$(Build.BinariesDirectory)/database/DataXFR/XFR-Load"
+      flattenFolders: true
+
+  - task: CopyFiles@2
+    displayName: "Copy Framework Data CSV files to target location"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: database/DataXFR/abx-CSV-Data/**
+      TargetFolder: "$(Build.BinariesDirectory)/database/DataXFR/abx-CSV-Data"
+      flattenFolders: true
+
+  - task: CmdLine@2
+    displayName: "List files (after consolidating DataXFR files in the binaries location)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+  - task: ArchiveFiles@2
+    displayName: "Compress DataXFR to Zip"
+    inputs:
+      rootFolderOrFile: "$(Build.BinariesDirectory)/database/DataXFR"
+      includeRootFolder: false #
+      archiveType: "zip"
+      archiveFile: "$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-data-xfr.zip"
+
+  - task: CmdLine@2
+    displayName: "List files (after copying DataXFR to target)"
+    inputs:
+      script: |
+        echo Agent.WorkFolder: $(Agent.WorkFolder)
+        echo Build.ArtifactStagingDirectory: $(Build.ArtifactStagingDirectory)
+        echo Build.BinariesDirectory: $(Build.BinariesDirectory)
+        echo Build.SourcesDirectory: $(Build.SourcesDirectory)
+        echo Structure of work folder of this pipeline:
+        tree $(Agent.WorkFolder)/1
+
+    # mf_apps Database Scripts: 
   - task: PowerShell@2
     displayName: "Running prep-sp-script.ps1"
     inputs:
@@ -305,7 +846,6 @@ steps:
       arguments: "$(Build.Repository.Name) $(Build.SourceBranchName) $(Build.DefinitionName) $(Build.BuildNumber)"
       workingDirectory: "$(Build.SourcesDirectory)"
 
-  # List files (after running prep-sp-script.ps1)
   - task: CmdLine@2
     displayName: "List files (after running prep-sp-script.ps1)"
     inputs:
@@ -318,17 +858,23 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # Copy SP creation .sql & .ps1 files to target location
   - task: CopyFiles@2
     displayName: "Copy SP creation .sql & .ps1 files to target location"
     inputs:
-      SourceFolder: "$(Build.SourcesDirectory)"
+      SourceFolder: "$(Build.SourcesDirectory)/database/Stored Procedures"
       Contents: |
-        database/Stored Procedures/*.sql
-        database/Stored Procedures/*.ps1
-      TargetFolder: "$(Build.BinariesDirectory)"
+        **/*.sql
+        **/*.ps1
+      TargetFolder: "$(Build.BinariesDirectory)/database/sp-function"
 
-  # List files (after copying .sql and .ps1 files)
+  - task: CopyFiles@2
+    displayName: "Copy Function creation .sql files to target location"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)/database/Functions"
+      Contents: |
+        **/abx_*.sql
+      TargetFolder: "$(Build.BinariesDirectory)/database/sp-function"
+
   - task: CmdLine@2
     displayName: "List files (after copying .sql and .ps1 files)"
     inputs:
@@ -341,16 +887,13 @@ steps:
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
 
-  # Compress to Stored Procedure Artifacts to Zip
   - task: PowerShell@2
     displayName: "Compress to Stored Procedure Artifacts to Zip"
     inputs:
       targetType: "inline"
       script: |
-        # 1) Create a zip file for publishing
-        Compress-Archive '$(Build.BinariesDirectory)/database/Stored Procedures/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-sp.zip'
+        Compress-Archive '$(Build.BinariesDirectory)/database/sp-function/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-db-sp.zip'
 
-  # List files (after copying SP zip to artifact folder)
   - task: CmdLine@2
     displayName: "List files (after copying SP zip to artifact folder)"
     inputs:
@@ -362,11 +905,193 @@ steps:
 
         echo "Structure of work folder of this pipeline:"
         tree $(Agent.WorkFolder)/1
+  #endregion: Database
 
-  # Publish Pipeline artifact
+  #region: Utilities
+  # dotnet: AD_ProjectName_Sync
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet Publish - AD_ProjectName_Sync"
+    inputs:
+      command: "publish"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory)  --output $(Build.BinariesDirectory)/utilities/AD_ProjectName_Sync --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "utilities/dotnet/AD_ProjectName_Sync"
+
+  - task: CmdLine@2
+    displayName: "List files (after dotnet publish - AD_ProjectName_Sync)"
+    inputs:
+      script: |
+        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+  # - task: CopyFiles@2
+  #   displayName: "Copy batch files to target location"
+  #   inputs:
+  #     SourceFolder: "$(Build.SourcesDirectory)"
+  #     Contents: |
+  #         utilities/batch/*.bat          
+  #     TargetFolder: "$(Build.BinariesDirectory)/utilities/batch"
+  #     flattenFolders: true
+
+  - task: PowerShell@2
+    displayName: "Compress Utilities to Zip"
+    inputs:
+      targetType: "inline"
+      script: |
+        # 1) Create a zip file for publishing
+        Compress-Archive '$(Build.BinariesDirectory)/utilities/' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-utilities.zip'
+
+  - task: CmdLine@2
+    displayName: "List files (after Compress to Zip)"
+    inputs:
+      script: |
+        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+  # # dotnet: Log Analyzer Service
+  # - task: DotNetCoreCLI@2
+  #   displayName: "dotnet Publish - LogAnalyzer"
+  #   inputs:
+  #     command: "publish"
+  #     publishWebProjects: false
+  #     arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory)  --output $(Build.BinariesDirectory)/LogAnalyzer --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+  #     zipAfterPublish: false
+  #     workingDirectory: "utilities/dotnet/LogAnalyzer"
+
+  # - task: CmdLine@2
+  #   displayName: "List files (after dotnet publish - LogAnalyzer)"
+  #   inputs:
+  #     script: |
+  #       echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+  #       echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+  #       echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+  #       echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+  #       echo "Structure of work folder of this pipeline:"
+  #       tree $(Agent.WorkFolder)/1
+
+  # - task: PowerShell@2
+  #   displayName: "Compress LogAnalyzer to Zip"
+  #   inputs:
+  #     targetType: "inline"
+  #     script: |
+  #       # 1) Create a zip file for publishing
+  #       Compress-Archive '$(Build.BinariesDirectory)/LogAnalyzer/' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-log-analyzer.zip'
+
+  # - task: CmdLine@2
+  #   displayName: "List files (after Compress LogAnalyzer to Zip)"
+  #   inputs:
+  #     script: |
+  #       echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+  #       echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+  #       echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+  #       echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+  #       echo "Structure of work folder of this pipeline:"
+  #       tree $(Agent.WorkFolder)/1
+
+  # - task: PowerShell@2
+  #   displayName: "Compress Scripts to Zip"
+  #   inputs:
+  #     targetType: "inline"
+  #     script: |
+  #       # 1) Create a zip file for publishing
+  #       Compress-Archive '$(Build.SourcesDirectory)/utilities/scripts/' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-scripts.zip'
+
+  # - task: CmdLine@2
+  #   displayName: "List files (after Compress Scripts to Zip)"
+  #   inputs:
+  #     script: |
+  #       echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+  #       echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+  #       echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+  #       echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+  #       echo "Structure of work folder of this pipeline:"
+  #       tree $(Agent.WorkFolder)/1
+
+
+  # dotnet: Log Mover Service
+  - task: DotNetCoreCLI@2
+    displayName: "dotnet Publish - LogMoverService"
+    inputs:
+      command: "publish"
+      publishWebProjects: false
+      arguments: "--no-dependencies -c Release -r win-x64 -p:PublishSingleFile=False --self-contained true --property:PublishDir=$(Build.BinariesDirectory)  --output $(Build.BinariesDirectory)/LogMoverService --version-suffix $(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)"
+      zipAfterPublish: false
+      workingDirectory: "utilities/dotnet/LogMoverService"
+
+  - task: CmdLine@2
+    displayName: "List files (after dotnet publish - LogMoverService)"
+    inputs:
+      script: |
+        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+  - task: PowerShell@2
+    displayName: "Compress LogMoverService to Zip"
+    inputs:
+      targetType: "inline"
+      script: |
+        Compress-Archive '$(Build.BinariesDirectory)/LogMoverService/' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-log-mover-service.zip'
+
+  - task: CmdLine@2
+    displayName: "List files (after Compress LogMoverService to Zip)"
+    inputs:
+      script: |
+        echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+        echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+        echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+        echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+        echo "Structure of work folder of this pipeline:"
+        tree $(Agent.WorkFolder)/1
+
+  #endregion: Utilities
+
+  # #region: Automation Test (Python)
+  # - task: PowerShell@2
+  #   displayName: "Compress UI Automation Python Artifacts to Zip"
+  #   inputs:
+  #     targetType: "inline"
+  #     script: |
+  #       # 1) Create a zip file for publishing
+  #       Compress-Archive '$(Build.SourcesDirectory)/tests/ui_automated_tests/*' '$(Build.ArtifactStagingDirectory)/$(Build.DefinitionName)-$(Build.SourceBranchName)-$(Build.BuildNumber)-ProjectName-ui-automated-tests.zip'
+
+  # - task: CmdLine@2
+  #   displayName: "List files (after Compress to Zip)"
+  #   inputs:
+  #     script: |
+  #       echo "Agent.WorkFolder: " "$(Agent.WorkFolder)"
+  #       echo "Build.ArtifactStagingDirectory: " "$(Build.ArtifactStagingDirectory)"
+  #       echo "Build.BinariesDirectory: " "$(Build.BinariesDirectory)"
+  #       echo "Build.SourcesDirectory: " "$(Build.SourcesDirectory)"
+
+  #       echo "Structure of work folder of this pipeline:"
+  #       tree $(Agent.WorkFolder)/1
+  # #endregion: Automation Test (Python)  
+
+  #region: Publish Artifacts
   - task: PublishPipelineArtifact@1
     displayName: "Publish Pipeline artifact"
     inputs:
       targetPath: "$(Build.ArtifactStagingDirectory)"
       artifact: "$(Build.DefinitionName)-$(Build.SourceBranchName)"
       publishLocation: "pipeline"
+  #endregion: Publish Artifacts
+#endregion
