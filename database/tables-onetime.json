@@ -1,0 +1,107 @@
+{
+  "application": "APPNAME",
+  "Tables": [
+    {
+      "schemaName": "dbo",
+      "tableName": "TIRETRAN_FL",
+      "fileName": "database\\Tables\\BVMS\\075_055_TIRETRAN_FL.sql",
+      "children": []
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "CAMPAIGN",
+      "fileName": "database\\Tables\\BVMS\\075_056_CAMPAIGN.sql",
+      "children": [
+        "CAMPAIGN_BC",
+        "CAMPAIGN_BG"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "ASI_IF",
+      "fileName": "database\\Tables\\BVMS\\075_059_ASI_IF.sql",
+      "children": []
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "FLT_SUBSYS",
+      "fileName": "database\\Tables\\BVMS\\075_066_FLT_SUBSYS.sql",
+      "children": [
+        "FLT_SUBSYS_AJ",
+        "FLT_SUBSYS_AK"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "INSP_FORM",
+      "fileName": "database\\Tables\\BVMS\\075_067_INSP_FORM.sql",
+      "children": [
+        "INSP_FORM_AE"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "SCHED_EVT",
+      "fileName": "database\\Tables\\BVMS\\075_233_SCHED_EVT.sql",
+      "children": [
+        "SCHED_EVT_AC"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "TRANSFR_FL",
+      "fileName": "database\\Tables\\BVMS\\075_234_TRANSFR_FL.sql",
+      "children": []
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "MAST_FILE",
+      "fileName": "database\\Tables\\BVMS\\075_235_MAST_FILE.sql",
+      "children": [
+        "MAST_FILE_BD"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "FLEET_FILE",
+      "fileName": "database\\Tables\\BVMS\\075_236_FLEET_FILE.sql",
+      "children": [
+        "FLEET_FILE_BE"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "WC_FILE",
+      "fileName": "database\\Tables\\BVMS\\075_237_WC_FILE.sql",
+      "children": []
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "SCHED_MAINT",
+      "fileName": "database\\Tables\\BVMS\\075_239_SCHED_MAINT.sql",
+      "children": [
+        "SCHED_MAINT_AG"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "VEH_REP_HIS",
+      "fileName": "database\\Tables\\BVMS\\075_247_VEH_REP_HIS.sql",
+      "children": [
+        "VEH_REP_HIS_AZ"
+      ]
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "WORK_CNTLIN",
+      "fileName": "database\\Tables\\BVMS\\075_252_WORK_CNTLIN.sql",
+      "children": []
+    },
+    {
+      "schemaName": "dbo",
+      "tableName": "FUEL_ERR",
+      "fileName": "database\\Tables\\BVMS\\075_254_FUEL_ERR.sql",
+      "children": []
+    }
+  ]
+}
